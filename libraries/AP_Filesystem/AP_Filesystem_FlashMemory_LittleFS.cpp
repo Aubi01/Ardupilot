@@ -703,9 +703,6 @@ bool AP_Filesystem_FlashMemory_LittleFS::mount_filesystem() {
         return false;
     }
 
-    // find_block_size_and_count() filled out the read / prog / block sizes
-    // and counts in fs_cfg so it's time to mount
-
     if (lfs_mount(&fs, &fs_cfg) < 0) {
         /* maybe not formatted? try formatting it */
         GCS_SEND_TEXT(MAV_SEVERITY_NOTICE, "Formatting flash");
@@ -716,7 +713,6 @@ bool AP_Filesystem_FlashMemory_LittleFS::mount_filesystem() {
 #endif
 
         if (lfs_format(&fs, &fs_cfg) < 0) {
-            /* cannot format either, give up */
             mark_dead();
             return false;
         }
@@ -805,7 +801,7 @@ uint32_t AP_Filesystem_FlashMemory_LittleFS::lfs_block_and_offset_to_raw_flash_a
 
 uint32_t AP_Filesystem_FlashMemory_LittleFS::lfs_block_to_raw_flash_page_index(lfs_block_t index)
 {
-    return index * (fs_cfg.block_size / fs_cfg.read_size);
+    return index * (fs_cfg.block_size / fs_cfg.prog_size);
 }
 
 bool AP_Filesystem_FlashMemory_LittleFS::write_enable()
@@ -901,7 +897,7 @@ int AP_Filesystem_FlashMemory_LittleFS::_flashmem_prog(
         return LFS_ERR_IO;
     }
 
-    if (!wait_until_device_is_ready() || !write_enable()) {
+    if (!write_enable()) {
         return LFS_ERR_IO;
     }
 
@@ -919,17 +915,9 @@ int AP_Filesystem_FlashMemory_LittleFS::_flashmem_prog(
         dev->set_chip_select(false);
     }
 
-    if (!wait_until_device_is_ready()) {
-        return LFS_ERR_IO;
-    }
-
     {
         WITH_SEMAPHORE(dev_sem);
         send_command_addr(JEDEC_PROGRAM_EXECUTE, address / fs_cfg.prog_size);
-    }
-
-    if (!wait_until_device_is_ready()) {
-        return LFS_ERR_IO;
     }
 #else
     WITH_SEMAPHORE(dev_sem);
@@ -947,25 +935,26 @@ int AP_Filesystem_FlashMemory_LittleFS::_flashmem_erase(lfs_block_t block) {
         return LFS_ERR_IO;
     }
 
-    if (!wait_until_device_is_ready() || !write_enable()) {
+    if (!write_enable()) {
         return LFS_ERR_IO;
     }
 
-    {
-        WITH_SEMAPHORE(dev_sem);
+    WITH_SEMAPHORE(dev_sem);
 #if AP_FILESYSTEM_LITTLEFS_FLASH_TYPE == AP_FILESYSTEM_FLASH_W25NXX
-        send_command_addr(JEDEC_BLOCK_ERASE, lfs_block_to_raw_flash_page_index(block));
+    send_command_addr(JEDEC_BLOCK_ERASE, lfs_block_to_raw_flash_page_index(block));
 #else
-        send_command_addr(JEDEC_SECTOR4_ERASE, lfs_block_and_offset_to_raw_flash_address(block));
+    send_command_addr(JEDEC_SECTOR4_ERASE, lfs_block_and_offset_to_raw_flash_address(block));
 #endif
-    }
 
     return LFS_ERR_OK;
 }
 
 int AP_Filesystem_FlashMemory_LittleFS::_flashmem_sync() {
-    /* Nothing to do, no write caching */
-    return LFS_ERR_OK;
+    if (wait_until_device_is_ready()) {
+        return LFS_ERR_OK;
+    } else {
+        return LFS_ERR_IO;
+    }
 }
 
 static int flashmem_read(
