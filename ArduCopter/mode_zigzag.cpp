@@ -330,7 +330,7 @@ void ModeZigZag::manual_control()
 
     case AltHoldModeState::MotorStopped:
         attitude_control->reset_rate_controller_I_terms();
-        attitude_control->reset_yaw_target_and_rate();
+        attitude_control->reset_yaw_target_and_rate(true);
         pos_control->relax_z_controller(0.0f);   // forces throttle output to decay to zero
         loiter_nav->init_target();
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
@@ -356,10 +356,14 @@ void ModeZigZag::manual_control()
         break;
 
     case AltHoldModeState::Landed_Ground_Idle:
-        attitude_control->reset_yaw_target_and_rate();
-        FALLTHROUGH;
+        attitude_control->reset_yaw_target_and_rate(false);
+        attitude_control->reset_rate_controller_I_terms_smoothly();
+        break;
 
     case AltHoldModeState::Landed_Pre_Takeoff:
+        if (!motors->using_hdg_error_correction()) {
+            attitude_control->reset_target_and_rate(false);
+        }
         attitude_control->reset_rate_controller_I_terms_smoothly();
         loiter_nav->init_target();
         attitude_control->input_thrust_vector_rate_heading(loiter_nav->get_thrust_vector(), target_yaw_rate);
